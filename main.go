@@ -7,6 +7,11 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
+	"os"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -63,6 +68,11 @@ type Summary struct {
 	NewRoute      bool     `json:"newRoute"`
 }
 
+type FlightToCompare struct {
+	AbroadFlight Outbound
+	ReturnFlight Outbound
+}
+
 type ExchangeRates struct {
 	Table    string `json:"table"`
 	Currency string `json:"currency"`
@@ -90,6 +100,8 @@ func main() {
 	currentLocation := now.Location()
 	startDate := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, currentLocation)
 	endDate := startDate.AddDate(0, lookForwardInMonths, -1)
+
+	chatId, botToken := os.Args[1], os.Args[2]
 
 	var modlinToAlicante FlightResponse
 	var chopinToAlicante FlightResponse
@@ -121,18 +133,7 @@ func main() {
 	alicanteToWarsawFares := append(alicanteToModlin.Fares, alicanteToChopin.Fares...)
 	convertEURtoPLN(&alicanteToWarsawFares)
 
-	for _, fare := range alicanteToWarsawFares {
-		fmt.Printf("Flight from %s (%s) to %s (%s), price: %.2f %s, curr symbol: %s, date: %s\n",
-			fare.Outbound.DepartureAirport.Name,
-			fare.Outbound.DepartureAirport.IATACode,
-			fare.Outbound.ArrivalAirport.Name,
-			fare.Outbound.ArrivalAirport.IATACode,
-			fare.Outbound.Price.Value,
-			fare.Outbound.Price.CurrencyCode,
-			fare.Outbound.Price.CurrencySymbol,
-			fare.Outbound.DepartureDate)
-	}
-
+	var flightsToCompare []FlightToCompare
 	for _, wawToAlc := range warsawToAlicanteFares {
 		for _, alcToWaw := range alicanteToWarsawFares {
 			departureDate, err := time.Parse("2006-01-02T15:04:05", wawToAlc.Outbound.DepartureDate)
@@ -143,16 +144,59 @@ func main() {
 			if err != nil {
 				log.Fatal(err)
 			}
-			if departureDate.Before(returnDate) && returnDate.Sub(departureDate) < time.Hour*24*15 {
-				log.Print(wawToAlc.Outbound.DepartureDate, "---", alcToWaw.Outbound.DepartureDate)
-				log.Print(wawToAlc.Outbound.Price.Value + alcToWaw.Outbound.Price.Value)
+			if departureDate.Before(returnDate) &&
+				returnDate.Sub(departureDate) < time.Hour*24*15 &&
+				returnDate.Sub(departureDate) > time.Hour*24*3 {
+
+				flightsToCompare = append(flightsToCompare, FlightToCompare{wawToAlc.Outbound, alcToWaw.Outbound})
 			}
 		}
 	}
 
-	// if 2 == 2 {
-	// 	log.Print()
-	// }
+	sort.Slice(flightsToCompare, func(i, j int) bool {
+		priceSummary := flightsToCompare[i].AbroadFlight.Price.Value + flightsToCompare[i].ReturnFlight.Price.Value
+		nextPriceSummary := flightsToCompare[j].AbroadFlight.Price.Value + flightsToCompare[j].ReturnFlight.Price.Value
+		return priceSummary < nextPriceSummary
+	})
+
+	var message bytes.Buffer
+	for _, trip := range flightsToCompare[:10] {
+		log.Print("|", trip.AbroadFlight.DepartureDate, "---", trip.ReturnFlight.DepartureDate)
+		log.Print("|", trip.AbroadFlight.Price.Value+trip.ReturnFlight.Price.Value)
+		log.Print("+-------------------------------------------+")
+		message.WriteString(fmt.Sprintf("%s ---> %s ", trip.AbroadFlight.DepartureAirport.Name, trip.AbroadFlight.ArrivalAirport.Name))
+		message.WriteString(fmt.Sprintf("%s ", strings.Replace(trip.AbroadFlight.DepartureDate, "T", " ", 1)))
+		message.WriteString(fmt.Sprintf("%s%s\n", strconv.FormatFloat(trip.AbroadFlight.Price.Value, 'f', 2, 64), trip.AbroadFlight.Price.CurrencySymbol))
+		message.WriteString(fmt.Sprintf("%s ---> %s ", trip.ReturnFlight.DepartureAirport.Name, trip.ReturnFlight.ArrivalAirport.Name))
+		message.WriteString(fmt.Sprintf("%s ", strings.Replace(trip.ReturnFlight.DepartureDate, "T", " ", 1)))
+		message.WriteString(fmt.Sprintf("%s%s\n", strconv.FormatFloat(trip.ReturnFlight.Price.Value, 'f', 2, 64), trip.ReturnFlight.Price.CurrencySymbol))
+		message.WriteString(fmt.Sprintf("Razem: %szł\n", strconv.FormatFloat(trip.AbroadFlight.Price.Value+trip.ReturnFlight.Price.Value, 'f', 2, 64)))
+		message.WriteString("\n")
+	}
+
+	u := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
+	data := url.Values{}
+	data.Set("chat_id", chatId)
+	data.Set("text", message.String())
+	req, err := http.NewRequest("POST", u, strings.NewReader(data.Encode()))
+	if err != nil {
+		log.Fatal(err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	client := http.Client{}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Fatal("Error sending request:", err)
+		return
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusOK {
+		log.Print("Message sent successfully!")
+	} else {
+		log.Fatalf("Failed to send message. Status code: %d\n", resp.StatusCode)
+	}
 
 }
 
