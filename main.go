@@ -17,11 +17,13 @@ import (
 )
 
 const (
-	lookForwardInMonths = 5
-	offersPerMonth      = 5
-	chopinAirportCode   = "WAW"
-	modlinAirportCode   = "WMI"
-	alicanteAirportCode = "ALC"
+	lookForwardInMonths   = 5
+	offersPerMonth        = 5
+	minTripDurationInDays = 3
+	maxTripDurationInDays = 15
+	chopinAirportCode     = "WAW"
+	modlinAirportCode     = "WMI"
+	alicanteAirportCode   = "ALC"
 )
 
 func main() {
@@ -164,8 +166,8 @@ func getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares []Fare) ma
 				log.Fatal(err)
 			}
 			if departureDate.Before(returnDate) &&
-				returnDate.Sub(departureDate) < time.Hour*24*15 &&
-				returnDate.Sub(departureDate) > time.Hour*24*3 {
+				returnDate.Sub(departureDate) < time.Hour*24*maxTripDurationInDays &&
+				returnDate.Sub(departureDate) > time.Hour*24*minTripDurationInDays {
 
 				flights[departureDate.Month()] = append(
 					flights[departureDate.Month()], FlightToCompare{wawToAlc.Outbound, alcToWaw.Outbound})
