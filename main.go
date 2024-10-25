@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"net/http"
 	"net/url"
 	"os"
@@ -33,7 +34,7 @@ func main() {
 
 	warsawToAlicanteFares := getWarsawToAlicanteFlights(startDate, endDate)
 	alicanteToWarsawFares := getAlicanteToWarsawFlights(startDate, endDate)
-	convertEURtoPLN(&alicanteToWarsawFares)
+	convertEURtoPLN(&alicanteToWarsawFares, getEuroRate())
 
 	flightsToCompare := getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares)
 	message := buildMessage(now, flightsToCompare)
@@ -106,12 +107,15 @@ func getRyanFlights(
 	return body
 }
 
-func convertEURtoPLN(fares *[]Fare) {
-	euroRate := getEuroRate()
+func convertEURtoPLN(fares *[]Fare, euroRate float64) {
 	for i := range *fares {
-		(*fares)[i].Outbound.Price.Value *= euroRate
+		convertedValue := (*fares)[i].Outbound.Price.Value * euroRate
+		(*fares)[i].Outbound.Price.Value = math.Round(convertedValue*100) / 100
+		(*fares)[i].Summary.Price.Value = math.Round(convertedValue*100) / 100
 		(*fares)[i].Outbound.Price.CurrencyCode = "PLN"
+		(*fares)[i].Summary.Price.CurrencyCode = "PLN"
 		(*fares)[i].Outbound.Price.CurrencySymbol = "zł"
+		(*fares)[i].Summary.Price.CurrencySymbol = "zł"
 	}
 }
 
@@ -196,7 +200,7 @@ func buildMessage(now time.Time, flightsToCompare map[time.Month][]FlightToCompa
 			message.WriteString(fmt.Sprintf("Razem: %szł\n", strconv.FormatFloat(trip.AbroadFlight.Price.Value+trip.ReturnFlight.Price.Value, 'f', 2, 64)))
 			message.WriteString("\n")
 		}
-		message.WriteString("--------------------------------\n")
+		message.WriteString("------------------------------------------\n")
 	}
 	return message
 }
