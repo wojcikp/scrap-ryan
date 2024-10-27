@@ -17,17 +17,19 @@ import (
 )
 
 const (
-	lookForwardInMonths   = 5
-	offersPerMonth        = 5
-	minTripDurationInDays = 3
-	maxTripDurationInDays = 15
-	chopinAirportCode     = "WAW"
-	modlinAirportCode     = "WMI"
-	alicanteAirportCode   = "ALC"
+	lookForwardInMonths = 5
+	offersPerMonth      = 5
+	chopinAirportCode   = "WAW"
+	modlinAirportCode   = "WMI"
+	alicanteAirportCode = "ALC"
 )
 
+var minTripDurationInDays = 3
+var maxTripDurationInDays = 15
+var chatId, botToken string
+
 func main() {
-	chatId, botToken := os.Args[1], os.Args[2]
+	setOsArgs()
 	now := time.Now()
 	currentYear, currentMonth, _ := now.Date()
 	currentLocation := now.Location()
@@ -41,6 +43,27 @@ func main() {
 	flightsToCompare := getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares)
 	message := buildMessage(now, flightsToCompare)
 	sendMessageToTelegram(message, botToken, chatId)
+}
+
+func setOsArgs() {
+	if len(os.Args) <= 1 {
+		log.Fatal("Missing required arguments: chatId, botToken.\nAdditional arguments are: minTripDurationInDays and maxTripDurationInDays")
+		os.Exit(1)
+	} else {
+		if len(os.Args) > 4 {
+			min, err := strconv.Atoi(os.Args[3])
+			if err != nil {
+				log.Fatal(err)
+			}
+			max, err := strconv.Atoi(os.Args[4])
+			if err != nil {
+				log.Fatal(err)
+			}
+			minTripDurationInDays = min
+			maxTripDurationInDays = max
+		}
+		chatId, botToken = os.Args[1], os.Args[2]
+	}
 }
 
 func getWarsawToAlicanteFlights(startDate, endDate time.Time) []Fare {
@@ -166,8 +189,8 @@ func getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares []Fare) ma
 				log.Fatal(err)
 			}
 			if departureDate.Before(returnDate) &&
-				returnDate.Sub(departureDate) < time.Hour*24*maxTripDurationInDays &&
-				returnDate.Sub(departureDate) > time.Hour*24*minTripDurationInDays {
+				returnDate.Sub(departureDate) < time.Hour*24*time.Duration(maxTripDurationInDays) &&
+				returnDate.Sub(departureDate) > time.Hour*24*time.Duration(minTripDurationInDays) {
 
 				flights[departureDate.Month()] = append(
 					flights[departureDate.Month()], FlightToCompare{wawToAlc.Outbound, alcToWaw.Outbound})
