@@ -68,6 +68,5 @@ type ExchangeRates struct {
 type Rate struct {
 	No            string  `json:"no"`
 	EffectiveDate string  `json:"effectiveDate"`
-	Bid           float64 `json:"bid"`
-	Ask           float64 `json:"ask"`
+	Mid           float64 `json:"mid"`
 }

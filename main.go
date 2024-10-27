@@ -121,6 +121,7 @@ func getRyanFlights(
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
+		log.Fatal("url: ", url)
 		log.Fatalf("Error: received non-200 response code: %d\n", resp.StatusCode)
 	}
 
@@ -146,7 +147,7 @@ func convertEURtoPLN(fares *[]Fare, euroRate float64) {
 
 func getEuroRate() float64 {
 	client := http.Client{}
-	req, err := http.NewRequest("GET", "https://api.nbp.pl/api/exchangerates/rates/c/eur/today/?format=json", bytes.NewBuffer([]byte{}))
+	req, err := http.NewRequest("GET", "https://api.nbp.pl/api/exchangerates/rates/a/eur/last/1/?format=json", bytes.NewBuffer([]byte{}))
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -159,7 +160,7 @@ func getEuroRate() float64 {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("Error: received non-200 response code: %d\n", resp.StatusCode)
+		log.Fatalf("getEuroRate() Error: received non-200 response code: %d\n", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
@@ -173,7 +174,7 @@ func getEuroRate() float64 {
 		log.Fatalf("Error unmarshalling JSON: %v\n", err)
 	}
 
-	return exchangeRates.Rates[0].Ask
+	return exchangeRates.Rates[0].Mid
 }
 
 func getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares []Fare) map[time.Month][]FlightToCompare {
