@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -29,7 +30,10 @@ var maxTripDurationInDays = 15
 var chatId, botToken string
 
 func main() {
-	setOsArgs()
+	if err := setOsArgs(); err != nil {
+		log.Fatal(err)
+		os.Exit(1)
+	}
 	now := time.Now()
 	currentYear, currentMonth, _ := now.Date()
 	currentLocation := now.Location()
@@ -45,25 +49,28 @@ func main() {
 	sendMessageToTelegram(message, botToken, chatId)
 }
 
-func setOsArgs() {
+func setOsArgs() error {
 	if len(os.Args) <= 1 {
-		log.Fatal("Missing required arguments: chatId, botToken.\nAdditional arguments are: minTripDurationInDays and maxTripDurationInDays")
-		os.Exit(1)
+		return errors.New("missing required arguments: chatId, botToken.\nadditional arguments are: minTripDurationInDays and maxTripDurationInDays")
 	} else {
 		if len(os.Args) > 4 {
 			min, err := strconv.Atoi(os.Args[3])
 			if err != nil {
-				log.Fatal(err)
+				return err
 			}
 			max, err := strconv.Atoi(os.Args[4])
 			if err != nil {
-				log.Fatal(err)
+				return err
+			}
+			if min <= 0 || max <= 0 {
+				return fmt.Errorf("one of optional args is wrong. integer greater than 0 needed. your args: %s, %s", os.Args[3], os.Args[4])
 			}
 			minTripDurationInDays = min
 			maxTripDurationInDays = max
 		}
 		chatId, botToken = os.Args[1], os.Args[2]
 	}
+	return nil
 }
 
 func getWarsawToAlicanteFlights(startDate, endDate time.Time) []Fare {
