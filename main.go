@@ -32,7 +32,6 @@ var chatId, botToken string
 func main() {
 	if err := setOsArgs(); err != nil {
 		log.Fatal(err)
-		os.Exit(1)
 	}
 	now := time.Now()
 	currentYear, currentMonth, _ := now.Date()
@@ -40,11 +39,24 @@ func main() {
 	startDate := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, currentLocation)
 	endDate := startDate.AddDate(0, lookForwardInMonths, -1)
 
-	warsawToAlicanteFares := getWarsawToAlicanteFlights(startDate, endDate)
-	alicanteToWarsawFares := getAlicanteToWarsawFlights(startDate, endDate)
-	convertEURtoPLN(&alicanteToWarsawFares, getEuroRate())
+	warsawToAlicanteFares, err := getWarsawToAlicanteFlights(startDate, endDate)
+	if err != nil {
+		log.Fatal(err)
+	}
+	alicanteToWarsawFares, err := getAlicanteToWarsawFlights(startDate, endDate)
+	if err != nil {
+		log.Fatal(err)
+	}
+	euroRate, err := getEuroRate()
+	if err != nil {
+		log.Fatal(err)
+	}
+	convertEURtoPLN(&alicanteToWarsawFares, euroRate)
 
-	flightsToCompare := getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares)
+	flightsToCompare, err := getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares)
+	if err != nil {
+		log.Fatal(err)
+	}
 	message := buildMessage(now, flightsToCompare)
 	sendMessageToTelegram(message, botToken, chatId)
 }
@@ -73,39 +85,51 @@ func setOsArgs() error {
 	return nil
 }
 
-func getWarsawToAlicanteFlights(startDate, endDate time.Time) []Fare {
+func getWarsawToAlicanteFlights(startDate, endDate time.Time) ([]Fare, error) {
 	var modlinToAlicante FlightResponse
 	var chopinToAlicante FlightResponse
 	var flightsData []byte
 
-	flightsData = getRyanFlights(modlinAirportCode, alicanteAirportCode, startDate, endDate)
-	err := json.Unmarshal([]byte(flightsData), &modlinToAlicante)
+	flightsData, err := getRyanFlights(modlinAirportCode, alicanteAirportCode, startDate, endDate)
 	if err != nil {
-		log.Fatal("Error unmarshalling JSON:", err)
+		return nil, fmt.Errorf("could not gather data from ryanair website.\n%v", err)
 	}
-	flightsData = getRyanFlights(chopinAirportCode, alicanteAirportCode, startDate, endDate)
+	err = json.Unmarshal([]byte(flightsData), &modlinToAlicante)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling JSON response: %v", err)
+	}
+	flightsData, err = getRyanFlights(chopinAirportCode, alicanteAirportCode, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("could not gather data from ryanair website.\n%v", err)
+	}
 	err = json.Unmarshal([]byte(flightsData), &chopinToAlicante)
 	if err != nil {
-		log.Fatal("Error unmarshalling JSON:", err)
+		return nil, fmt.Errorf("error unmarshalling JSON response: %v", err)
 	}
-	return append(modlinToAlicante.Fares, chopinToAlicante.Fares...)
+	return append(modlinToAlicante.Fares, chopinToAlicante.Fares...), nil
 }
 
-func getAlicanteToWarsawFlights(startDate, endDate time.Time) []Fare {
+func getAlicanteToWarsawFlights(startDate, endDate time.Time) ([]Fare, error) {
 	var alicanteToModlin FlightResponse
 	var alicanteToChopin FlightResponse
 	var flightsData []byte
-	flightsData = getRyanFlights(alicanteAirportCode, modlinAirportCode, startDate, endDate)
-	err := json.Unmarshal([]byte(flightsData), &alicanteToModlin)
+	flightsData, err := getRyanFlights(alicanteAirportCode, modlinAirportCode, startDate, endDate)
 	if err != nil {
-		log.Fatal("Error unmarshalling JSON:", err)
+		return nil, fmt.Errorf("could not gather data from ryanair website.\n%v", err)
 	}
-	flightsData = getRyanFlights(alicanteAirportCode, chopinAirportCode, startDate, endDate)
+	err = json.Unmarshal([]byte(flightsData), &alicanteToModlin)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling JSON response: %v", err)
+	}
+	flightsData, err = getRyanFlights(alicanteAirportCode, chopinAirportCode, startDate, endDate)
+	if err != nil {
+		return nil, fmt.Errorf("could not gather data from ryanair website.\n%v", err)
+	}
 	err = json.Unmarshal([]byte(flightsData), &alicanteToChopin)
 	if err != nil {
-		log.Fatal("Error unmarshalling JSON:", err)
+		return nil, fmt.Errorf("error unmarshalling JSON response: %v", err)
 	}
-	return append(alicanteToModlin.Fares, alicanteToChopin.Fares...)
+	return append(alicanteToModlin.Fares, alicanteToChopin.Fares...), nil
 }
 
 func getRyanFlights(
@@ -113,7 +137,7 @@ func getRyanFlights(
 	arrivalAirportCode string,
 	startDate time.Time,
 	endDate time.Time,
-) []byte {
+) ([]byte, error) {
 	url := fmt.Sprintf(
 		"https://www.ryanair.com/api/farfnd/v4/oneWayFares?departureAirportIataCode=%s&outboundDepartureDateFrom=%s&market=pl-pl&adultPaxCount=1&arrivalAirportIataCode=%s&searchMode=ALL&outboundDepartureDateTo=%s&outboundDepartureDaysOfWeek=MONDAY,TUESDAY,WEDNESDAY,THURSDAY,FRIDAY,SATURDAY,SUNDAY&outboundDepartureTimeFrom=00:00&outboundDepartureTimeTo=23:59",
 		departureAirportCode,
@@ -123,21 +147,20 @@ func getRyanFlights(
 	)
 	resp, err := http.Get(url)
 	if err != nil {
-		log.Fatal(err)
+		return nil, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatal("url: ", url)
-		log.Fatalf("Error: received non-200 response code: %d\n", resp.StatusCode)
+		return nil, fmt.Errorf("error: received non-200 response code: %d\nurl: %s", resp.StatusCode, url)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal("Error reading the response body:", err)
+		return nil, fmt.Errorf("error reading the response body: %v", err)
 	}
 
-	return body
+	return body, nil
 }
 
 func convertEURtoPLN(fares *[]Fare, euroRate float64) {
@@ -152,49 +175,49 @@ func convertEURtoPLN(fares *[]Fare, euroRate float64) {
 	}
 }
 
-func getEuroRate() float64 {
+func getEuroRate() (float64, error) {
 	client := http.Client{}
 	req, err := http.NewRequest("GET", "https://api.nbp.pl/api/exchangerates/rates/a/eur/last/1/?format=json", bytes.NewBuffer([]byte{}))
 	if err != nil {
-		log.Fatal(err)
+		return 0, err
 	}
 	req.Header.Add("User-Agent", `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_7_5) AppleWebKit/537.11 (KHTML, like Gecko) Chrome/23.0.1271.64 Safari/537.11`)
 
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatal(err)
+		return 0, err
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Fatalf("getEuroRate() Error: received non-200 response code: %d\n", resp.StatusCode)
+		return 0, fmt.Errorf("getEuroRate() Error: received non-200 response code: %d", resp.StatusCode)
 	}
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Fatal("Error reading the response body:", err)
+		return 0, fmt.Errorf("error reading the response body: %v", err)
 	}
 
 	var exchangeRates ExchangeRates
 	err = json.Unmarshal([]byte(body), &exchangeRates)
 	if err != nil {
-		log.Fatalf("Error unmarshalling JSON: %v\n", err)
+		return 0, fmt.Errorf("error unmarshalling JSON: %v", err)
 	}
 
-	return exchangeRates.Rates[0].Mid
+	return exchangeRates.Rates[0].Mid, nil
 }
 
-func getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares []Fare) map[time.Month][]FlightToCompare {
+func getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares []Fare) (map[time.Month][]FlightToCompare, error) {
 	flights := make(map[time.Month][]FlightToCompare)
 	for _, wawToAlc := range warsawToAlicanteFares {
 		for _, alcToWaw := range alicanteToWarsawFares {
 			departureDate, err := time.Parse("2006-01-02T15:04:05", wawToAlc.Outbound.DepartureDate)
 			if err != nil {
-				log.Fatal(err)
+				return nil, err
 			}
 			returnDate, err := time.Parse("2006-01-02T15:04:05", alcToWaw.Outbound.DepartureDate)
 			if err != nil {
-				log.Fatal(err)
+				return nil, err
 			}
 			if departureDate.Before(returnDate) &&
 				returnDate.Sub(departureDate) < time.Hour*24*time.Duration(maxTripDurationInDays) &&
@@ -205,7 +228,7 @@ func getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares []Fare) ma
 			}
 		}
 	}
-	return flights
+	return flights, nil
 }
 
 func buildMessage(now time.Time, flightsToCompare map[time.Month][]FlightToCompare) bytes.Buffer {
@@ -238,28 +261,28 @@ func buildMessage(now time.Time, flightsToCompare map[time.Month][]FlightToCompa
 	return message
 }
 
-func sendMessageToTelegram(message bytes.Buffer, botToken, chatId string) {
+func sendMessageToTelegram(message bytes.Buffer, botToken, chatId string) error {
 	u := fmt.Sprintf("https://api.telegram.org/bot%s/sendMessage", botToken)
 	data := url.Values{}
 	data.Set("chat_id", chatId)
 	data.Set("text", message.String())
 	req, err := http.NewRequest("POST", u, strings.NewReader(data.Encode()))
 	if err != nil {
-		log.Fatal(err)
+		return err
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	client := http.Client{}
 	resp, err := client.Do(req)
 	if err != nil {
-		log.Fatal("Error sending request:", err)
-		return
+		return fmt.Errorf("error sending request: %v", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode == http.StatusOK {
 		log.Print("Message sent successfully!")
 	} else {
-		log.Fatalf("Failed to send message. Status code: %d\n", resp.StatusCode)
+		return fmt.Errorf("failed to send message. Status code: %d", resp.StatusCode)
 	}
+	return nil
 }
