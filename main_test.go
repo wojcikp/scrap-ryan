@@ -94,15 +94,18 @@ func Test_getFlightsToCompare(t *testing.T) {
 				[]string{"2024-10-25T19:15:00", "2024-12-01T11:25:00", "2024-12-02T06:25:00", "2024-11-12T06:25:00"},
 				[]string{"2024-10-29T19:15:00", "2024-12-10T11:25:00", "2024-12-02T06:25:00", "2024-11-14T06:25:00"},
 			},
-			want: 2,
+			want: 3,
 		},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			flights := getFlightsToCompare(
+			flights, err := getFlightsToCompare(
 				getMockWawToAlcFaresFlexDates(test.args.wawToAlcDates...),
 				getMockAlcToWawFaresFlexDates(test.args.alcToWawDates...),
 			)
+			if err != nil {
+				t.Error(err)
+			}
 			keys := []time.Month{}
 			got := 0
 			for key := range flights {
