@@ -25,9 +25,11 @@ const (
 	alicanteAirportCode = "ALC"
 )
 
-var minTripDurationInDays = 3
-var maxTripDurationInDays = 15
-var chatId, botToken string
+var (
+	minTripDurationInDays = 3
+	maxTripDurationInDays = 15
+	chatId, botToken      string
+)
 
 func main() {
 	if err := setOsArgs(); err != nil {
@@ -234,7 +236,7 @@ func getFlightsToCompare(warsawToAlicanteFares, alicanteToWarsawFares []Fare) (m
 func buildMessage(now time.Time, flightsToCompare map[time.Month][]FlightToCompare) bytes.Buffer {
 	upcomingMonths := make([]time.Month, lookForwardInMonths)
 	for i := 0; i < lookForwardInMonths; i++ {
-		upcomingMonths[i] = now.AddDate(0, i, -1).Month()
+		upcomingMonths[i] = now.AddDate(0, i, -now.Day()+1).Month()
 	}
 
 	var message bytes.Buffer
@@ -246,15 +248,19 @@ func buildMessage(now time.Time, flightsToCompare map[time.Month][]FlightToCompa
 		})
 		message.WriteString(month.String())
 		message.WriteString("\n")
-		for _, trip := range flightsToCompare[month][:offersPerMonth] {
-			message.WriteString(fmt.Sprintf("%s ---> %s ", trip.AbroadFlight.DepartureAirport.Name, trip.AbroadFlight.ArrivalAirport.Name))
-			message.WriteString(fmt.Sprintf("%s ", strings.Replace(trip.AbroadFlight.DepartureDate, "T", " ", 1)))
-			message.WriteString(fmt.Sprintf("%s%s\n", strconv.FormatFloat(trip.AbroadFlight.Price.Value, 'f', 2, 64), trip.AbroadFlight.Price.CurrencySymbol))
-			message.WriteString(fmt.Sprintf("%s ---> %s ", trip.ReturnFlight.DepartureAirport.Name, trip.ReturnFlight.ArrivalAirport.Name))
-			message.WriteString(fmt.Sprintf("%s ", strings.Replace(trip.ReturnFlight.DepartureDate, "T", " ", 1)))
-			message.WriteString(fmt.Sprintf("%s%s\n", strconv.FormatFloat(trip.ReturnFlight.Price.Value, 'f', 2, 64), trip.ReturnFlight.Price.CurrencySymbol))
-			message.WriteString(fmt.Sprintf("Razem: %szł\n", strconv.FormatFloat(trip.AbroadFlight.Price.Value+trip.ReturnFlight.Price.Value, 'f', 2, 64)))
-			message.WriteString("\n")
+		if len(flightsToCompare[month]) > 0 {
+			for _, trip := range flightsToCompare[month][:offersPerMonth] {
+				message.WriteString(fmt.Sprintf("%s ---> %s ", trip.AbroadFlight.DepartureAirport.Name, trip.AbroadFlight.ArrivalAirport.Name))
+				message.WriteString(fmt.Sprintf("%s ", strings.Replace(trip.AbroadFlight.DepartureDate, "T", " ", 1)))
+				message.WriteString(fmt.Sprintf("%s%s\n", strconv.FormatFloat(trip.AbroadFlight.Price.Value, 'f', 2, 64), trip.AbroadFlight.Price.CurrencySymbol))
+				message.WriteString(fmt.Sprintf("%s ---> %s ", trip.ReturnFlight.DepartureAirport.Name, trip.ReturnFlight.ArrivalAirport.Name))
+				message.WriteString(fmt.Sprintf("%s ", strings.Replace(trip.ReturnFlight.DepartureDate, "T", " ", 1)))
+				message.WriteString(fmt.Sprintf("%s%s\n", strconv.FormatFloat(trip.ReturnFlight.Price.Value, 'f', 2, 64), trip.ReturnFlight.Price.CurrencySymbol))
+				message.WriteString(fmt.Sprintf("Razem: %szł\n", strconv.FormatFloat(trip.AbroadFlight.Price.Value+trip.ReturnFlight.Price.Value, 'f', 2, 64)))
+				message.WriteString("\n")
+			}
+		} else {
+			message.WriteString("No flights for this month\n")
 		}
 		message.WriteString("------------------------------------------\n")
 	}
