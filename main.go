@@ -31,6 +31,60 @@ var (
 	chatId, botToken      string
 )
 
+type FlightsData struct {
+	DepartureAirportCode string
+	ArrivalAirportCode   string
+	DepartureDate        time.Time
+	ArrivalDate          time.Time
+	Price                float64
+	Currency             string
+}
+
+type FlightsDataApiGetter interface {
+	GetAbroadFlightsData() ([]FlightsData, error)
+	GetBackHomeFlightsData() ([]FlightsData, error)
+}
+
+type RyanApiGetter struct {
+	startDate time.Time
+	endDate   time.Time
+}
+
+func NewRyanApiGetter() RyanApiGetter {
+	now := time.Now()
+	currentYear, currentMonth, _ := now.Date()
+	currentLocation := now.Location()
+	startDate := time.Date(currentYear, currentMonth, 1, 0, 0, 0, 0, currentLocation)
+	endDate := startDate.AddDate(0, lookForwardInMonths, -1)
+
+	return RyanApiGetter{startDate, endDate}
+}
+
+type TelegramMessageSender struct{}
+
+type App struct {
+	flightsDataApiGetters []FlightsDataApiGetter
+	telegramMessageSender TelegramMessageSender
+}
+
+func NewApp(flightsDataApiGetters []FlightsDataApiGetter, TelegramMessageSender TelegramMessageSender) *App {
+	return &App{flightsDataApiGetters, TelegramMessageSender}
+}
+
+func initApp() (*App, error) {
+	if err := setOsArgs(); err != nil {
+		return nil, fmt.Errorf("error occured during app initialization: %w", err)
+	}
+
+	var apiGetters []FlightsDataApiGetter
+	ryan := NewRyanApiGetter()
+	apiGetters = append(apiGetters, ryan)
+
+	messageSender := TelegramMessageSender{}
+
+	return NewApp(apiGetters, messageSender), nil
+}
+
 func main() {
 	if err := setOsArgs(); err != nil {
 		log.Fatal(err)
@@ -87,6 +141,76 @@ func setOsArgs() error {
 	return nil
 }
 
+func (r RyanApiGetter) GetAbroadFlightsData() ([]FlightsData, error) {
+	var modlinToAlicante FlightResponse
+	var chopinToAlicante FlightResponse
+	var response []byte
+	var flightsData []FlightsData
+
+	response, err := getRyanFlights(modlinAirportCode, alicanteAirportCode, r.startDate, r.endDate)
+	if err != nil {
+		return nil, fmt.Errorf("could not gather data from ryanair website.\n%v", err)
+	}
+	err = json.Unmarshal([]byte(response), &modlinToAlicante)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling JSON response: %v", err)
+	}
+
+	for _, fare := range modlinToAlicante.Fares {
+		departureDate, err := r.convertResponseDate(fare.Outbound.DepartureDate)
+		if err != nil {
+			return nil, fmt.Errorf("error during converting ryan response departure date: %w", err)
+		}
+		arrivalDate, err := r.convertResponseDate(fare.Outbound.ArrivalDate)
+		if err != nil {
+			return nil, fmt.Errorf("error during converting ryan response arrival date: %w", err)
+		}
+		flightsData = append(flightsData, FlightsData{
+			DepartureAirportCode: fare.Outbound.DepartureAirport.IATACode,
+			ArrivalAirportCode:   fare.Outbound.ArrivalAirport.IATACode,
+			DepartureDate:        departureDate,
+			ArrivalDate:          arrivalDate,
+			Price:                fare.Outbound.Price.Value,
+			Currency:             fare.Outbound.Price.CurrencyCode,
+		})
+	}
+
+	response, err = getRyanFlights(chopinAirportCode, alicanteAirportCode, r.startDate, r.endDate)
+	if err != nil {
+		return nil, fmt.Errorf("could not gather data from ryanair website.\n%v", err)
+	}
+	err = json.Unmarshal([]byte(response), &chopinToAlicante)
+	if err != nil {
+		return nil, fmt.Errorf("error unmarshalling JSON response: %v", err)
+	}
+
+	for _, fare := range chopinToAlicante.Fares {
+		departureDate, err := r.convertResponseDate(fare.Outbound.DepartureDate)
+		if err != nil {
+			return nil, fmt.Errorf("error during converting ryan response departure date: %w", err)
+		}
+		arrivalDate, err := r.convertResponseDate(fare.Outbound.ArrivalDate)
+		if err != nil {
+			return nil, fmt.Errorf("error during converting ryan response arrival date: %w", err)
+		}
+		flightsData = append(flightsData, FlightsData{
+			DepartureAirportCode: fare.Outbound.DepartureAirport.IATACode,
+			ArrivalAirportCode:   fare.Outbound.ArrivalAirport.IATACode,
+			DepartureDate:        departureDate,
+			ArrivalDate:          arrivalDate,
+			Price:                fare.Outbound.Price.Value,
+			Currency:             fare.Outbound.Price.CurrencyCode,
+		})
+	}
+
+	return flightsData, nil
+}
+
+func (r RyanApiGetter) convertResponseDate(responseDate string) (time.Time, error) {
+	// TODO: convert ryan response date
+	return time.Now(), nil
+}
+
 func getWarsawToAlicanteFlights(startDate, endDate time.Time) ([]Fare, error) {
 	var modlinToAlicante FlightResponse
 	var chopinToAlicante FlightResponse
@@ -109,6 +233,11 @@ func getWarsawToAlicanteFlights(startDate, endDate time.Time) ([]Fare, error) {
 		return nil, fmt.Errorf("error unmarshalling JSON response: %v", err)
 	}
 	return append(modlinToAlicante.Fares, chopinToAlicante.Fares...), nil
+}
+
+func (r RyanApiGetter) GetBackHomeFlightsData() ([]FlightsData, error) {
+	// TODO
+	return []FlightsData{}, nil
 }
 
 func getAlicanteToWarsawFlights(startDate, endDate time.Time) ([]Fare, error) {
